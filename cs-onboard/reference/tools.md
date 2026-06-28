@@ -104,7 +104,22 @@ CODESTABLE_ALLOW_SELF_REVIEW_FALLBACK=1 python3 .codestable/tools/validate-imple
 
 ---
 
-## 4. codestable-doctor.py
+## 4. Roadmap Goal Gates
+
+`cs-onboard` 会把技能包里的 `gates/` 和 gate 脚本释放到项目 `.codestable/`。这些 gate 不是全局 PreToolUse 拦截器，而是由 `cs-roadmap-impl-goal` / `cs-feat-*` 在阶段边界显式调用。
+
+```bash
+python3 .codestable/tools/validate-yaml.py --file .codestable/gates/roadmap-goal-gates.yaml --yaml-only
+python3 .codestable/tools/codestable-dod-contract-gate.py --design .codestable/features/YYYY-MM-DD-{slug}/{slug}-design.md
+python3 .codestable/tools/codestable-dod-runner.py --checklist .codestable/features/YYYY-MM-DD-{slug}/{slug}-checklist.yaml
+python3 .codestable/tools/codestable-evidence-pack.py --feature {slug} --design {design} --checklist {checklist} --out {slug}-evidence-pack.md
+```
+
+`roadmap-goal-gates.yaml` 是阶段配置入口；`codestable-scope-gate.py`、`codestable-dod-runner.py` 和 `codestable-evidence-pack.py` 是 implementation.before_review 的最小 runtime。`status: protocol-only` 的 gate 只表示协议占位，由 review / QA / acceptance / audit 技能读取证据后执行，不代表已有独立脚本。
+
+---
+
+## 5. codestable-doctor.py
 
 CodeStable 生命周期状态检查工具。只读，不修改文件。用于开始工作、恢复上下文、最终汇报前判断当前仓库是否还有阻塞项。
 
