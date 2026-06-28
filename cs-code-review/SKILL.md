@@ -42,6 +42,7 @@ description: 横切代码审查 gate——任何流程（feature / issue / refac
 - `git diff`（有 staged diff 时也读 `git diff --cached`）
 - diff 涉及的人写代码文件和相邻关键调用点
 - spec 指向的 architecture / requirement / roadmap 相关文档（只读，判断改动是否会影响归并；feature 即 design 第 4 节）
+- goal / gate 模式下的 evidence pack、gate results、DoD results；缺失时回 implementation gate 补证据，不现场猜测
 - independent reviewer 输出（如果本轮启用了 Paseo 或其他外部 reviewer）
 
 如果工作区有本轮范围外的既有 dirty 文件，先记录为 baseline/无关变更；审查结论只针对本轮可归因的改动。无法区分归因时写成 `residual-risk`，不要把不确定当通过。
@@ -53,35 +54,38 @@ description: 横切代码审查 gate——任何流程（feature / issue / refac
 先按「进入来源」表确认本轮来源，再做对应前置校验：
 
 1. 来源的 spec 产物存在且已定稿——feature 看 `{slug}-design.md`（`doc_type=feature-design`、`status=approved`、`feature` 与目录一致）+ `{slug}-checklist.yaml`（`steps` 全 `done`）；issue 看 report+analysis+fix-note；refactor 看 scan+refactor-design+checklist；ff / ad-hoc 看用户确认范围。缺定稿 spec 时退回对应实现技能，不硬审。
-2. 当前 diff 能看到本轮实现改动；完全没有代码或产物改动时退回来源实现技能。
-3. 如果已有 `{slug}-review.md`：
+2. goal / gate 模式下，先读取 `{slug}-evidence-pack.md`、`{slug}-gate-results.json` 和 `{slug}-dod-results.json`；缺失或 gate blocking 未解释时退回 implementation.before_review。
+3. 当前 diff 能看到本轮实现改动；完全没有代码或产物改动时退回来源实现技能。
+4. 如果已有 `{slug}-review.md`：
    - `status: passed` 且 diff 未变化：提示按表进入「通过后去向」。
    - `status: changes-requested` / `blocked`：读取旧 findings，确认是否处于 review-fix 后的复审。
    - diff 已变化：重新 review，并在报告里记录这是第几轮。
 
 ---
 
-## 独立 reviewer 增强项
+## 独立 reviewer（双环节）
 
-本阶段默认由当前 agent 完成本地 review；独立 reviewer 是增强项，不是硬依赖。检测不到外部 agent、Paseo 不可用、provider 未配置或用户明确要求快速完成时，可以继续本地 review，并在报告里记录 `Independent reviewer: local-only` / `skipped-by-user`。
+本阶段是**双环节 review**，两个环节互补：
 
-但一旦本轮已经启动 independent reviewer，它就成为本轮 review gate 的输入。主 agent 可以先做本地审查草稿，但不能在 independent reviewer 返回前定稿 `{slug}-review.md`、不能给出 `passed`、不能进入通过后去向。如果 reviewer 卡住、失败、权限阻塞或耗时过长，只能把本轮标成 `blocked` / `independent-review-pending`，然后让用户决定：继续等待、重试 reviewer，或明确降级为 local-only review。
+| 环节 | 目的 | 是否 gate 必需 |
+|---|---|---|
+| **A 独立隔离 agent review** | spec 视角整体审查，用**独立上下文**避免主 agent 确认偏误 | 是（gate 放行靠它） |
+| **B OCR 行级扫描** | 行级 bug / 安全 / 代码模式扫描，补 A 的盲区 | 否（装了就跑，缺了降级） |
 
-先运行本 skill 自带检测脚本。按已加载的 `SKILL.md` 所在目录解析脚本路径，不要按业务仓库根目录猜路径：
+**检测由主 agent 在运行时自检自己的工具**，不靠脚本猜环境——主 agent 最清楚自己手上有哪些工具。
 
-```bash
-python3 scripts/detect-review-agent.py --pretty
-```
+---
 
-脚本只输出能力 JSON，不启动 agent、不改文件。
+### 环节 A：独立隔离上下文 agent review（gate 必需）
 
-优先级：
+主 agent 自检工具，按优先级选一个启动独立 reviewer：
 
-1. **Paseo 可用**：优先用 Paseo 启动 `audit` 类 subagent 做只读独立审查。检测脚本只能说明本机存在 Paseo 候选能力；真正启动前还要确认当前 agent runtime 暴露 Paseo 工具，或可调用检测结果里的 Paseo CLI。启动前先加载 / 读取 `paseo` skill 的当前说明，并遵守它的规则：读取 `~/.paseo/orchestration-preferences.json`，使用 `providers.audit`，不要硬编码 Claude 或 Codex；文件缺失时用合理默认并在报告里说明。没有可用工具 / CLI 时不要伪装启动，记录 `local-only` 或 `blocked` 原因。不要无限轮询运行中的 agent；如果 reviewer 已启动但结果未返回，停止在 review gate，记录 pending/blocked，等待通知或用户决定。
-2. **只有 claude / gemini / aider 等 CLI 可见**：不要自动调用。直接本地 review，除非用户显式要求使用某个 CLI。
-3. **没有外部 reviewer**：本地 review。
+1. **有 `mcp__paseo__create_agent` 工具** → 用 Paseo `audit` subagent（**首选**：能换 provider，做到真正异构审查）。
+   先加载 / 读取 `paseo` skill 的当前说明并遵守其规则：读取 `~/.paseo/orchestration-preferences.json`，使用 `providers.audit`，不要硬编码 provider；文件缺失时用合理默认并在报告说明。
+2. **否则有 `Agent`（subagent）工具** → 用原生 subagent。独立上下文同样达成，只是与主 agent 同模型——仍显著优于自审。
+3. **两者都没有** → 记 `local-only`，不能伪装启动。gate 默认不放行，需用户明确降级（见 `reviewer` 字段）。
 
-Paseo subagent prompt 必须只给原始材料和边界，不透露本地 review 结论：
+独立 reviewer prompt（只给原始材料，不透露主 agent 的任何 review 结论）：
 
 ```text
 你是 CodeStable 本次改动的独立代码审查 agent。只读，不修改文件，不更新 checklist/design。
@@ -90,16 +94,64 @@ Paseo subagent prompt 必须只给原始材料和边界，不透露本地 review
 - .codestable/attention.md
 - {design_path}
 - {checklist_path}
+- {evidence_pack_path}、{gate_results_path}、{dod_results_path}（存在时）
 - 当前 git status / git diff / staged diff
 - diff 涉及的人写代码和相邻关键调用点
 
-按 code review 严重度语义输出：blocking / important / nit / suggestion / learning / praise / residual-risk。
+按严重度输出：blocking / important / nit / suggestion / learning / praise / residual-risk。
 每条 finding 必须有 file:line 或仓库事实证据、影响、建议修复边界。
 额外输出 Test And QA Focus：QA 必须重点复核的场景、建议新增或加强的测试、review 无法确认的点。
 不要写 {slug}-review.md；只把审查结果回传给主 agent。
 ```
 
-主 agent 仍是最终审查责任方：必须逐条核验 independent reviewer 的 finding，去重、定级、合并进 `{slug}-review.md`。未经本地仓库事实核验的外部结论只能写 `residual-risk` 或忽略，不能直接升级成 `blocking`。
+---
+
+### 环节 B：OCR 行级扫描（装了就跑）
+
+主 agent 自检 `ocr` CLI 是否可用：
+
+```bash
+which ocr && ocr llm test
+```
+
+可用则自动调用（不需要用户显式要求），用 `--background` 传入 spec 摘要提升质量：
+
+```bash
+ocr review --audience agent --background "{feature slug / 目标 / 本次改动范围}"
+```
+
+OCR 的 High / Medium / Low 映射到 cs-code-review 严重度后合并：
+
+| OCR 优先级 | 映射规则 |
+|---|---|
+| High | 有仓库事实支撑 → `blocking`/`important`；证据不足 → `residual-risk` |
+| Medium | `nit` 或 `suggestion` |
+| Low | 丢弃（视为噪音），不进入报告 |
+
+OCR 不做 spec-fit 判断；mapping 后的 finding 必须经主 agent 本地事实核验才能升级为 `blocking`。`ocr` 未安装 / `ocr llm test` 失败 → 记 `not-available`，提示用户可在 onboard 或手动 `npm install -g @alibaba-group/open-code-review` 安装；不阻塞本轮。
+
+---
+
+### 合并原则
+
+A、B 两环节可并行启动。一旦某环节已启动，主 agent **不能在其返回前定稿 `{slug}-review.md`、给出 `passed` 或进入通过后去向**。
+
+- 已启动的 reviewer 返回 → 逐条本地事实核验，去重，合并进报告，保留来源标注（`paseo` / `native-agent` / `ocr` / `local`）。
+- reviewer 失败 / 卡住 / 权限阻塞 → 报告 `status: blocked`，记录 `pending|failed|blocked` 和原因，让用户决定：重试、等待或明确降级。
+- 不要无限轮询；等通知或用户带回结果。
+
+未经本地仓库事实核验的外部结论只能写 `residual-risk` 或忽略，不能直接升级为 `blocking`。
+
+**`reviewer` 字段（gate 锚点）**，按本轮实际完成的环节写：
+
+| 值 | 含义 | gate |
+|---|---|---|
+| `subagent+ocr` | 环节 A（Paseo/原生 subagent）+ 环节 B 都完成（理想） | 放行 |
+| `subagent` | 环节 A 完成，OCR 不可用 / 跳过 | 放行 |
+| `ocr` | 仅 OCR，缺独立 agent review | 需 override |
+| `self` | 两环节都缺 | 需 override |
+
+gate 默认要求 `subagent` 或 `subagent+ocr`；`ocr` 和 `self` 需配 `CODESTABLE_ALLOW_SELF_REVIEW_FALLBACK=1` 才放行。OCR 不能替代环节 A——目的不同（A 是 spec 隔离审查，B 是行级扫描）。
 
 ## 审查流程
 
@@ -112,12 +164,12 @@ Paseo subagent prompt 必须只给原始材料和边界，不透露本地 review
 
 ### 2. 独立审查合并
 
-- 记录 detection 结果：`paseo-subagent` / `local-review-with-agent-cli-available` / `local-review`。
-- 如果没有启动 independent reviewer：记录 `not-available` / `skipped-by-user` / `local-only`，本地 review 可以定稿。
-- 如果启动了 Paseo subagent：先做本地 review 草稿，但最终 verdict 必须等 independent reviewer 返回。不要轮询运行中的 notify-on-finish agent；等通知、用户带回结果或下一轮继续。
-- 如果 independent reviewer 返回：逐条做本地事实核验，能复现 / 有证据才合并；证据不足只写 residual risk 或不采纳。
-- 如果 independent reviewer 失败、权限阻塞、超时或仍在运行：不要默默降级；报告 `status: blocked`，在 Independent Review 写 `pending|failed|blocked` 和 agent id / 原因，下一步交给用户决定继续等、重试或降级 local-only。
-- 报告里保留来源：哪些 finding 来自 independent reviewer，哪些是本地 review 发现。
+- 主 agent 自检工具：是否有 `mcp__paseo__create_agent` / `Agent`（subagent）工具，`which ocr` 是否可用。
+- 环节 A（独立隔离 agent，Paseo 优先→原生 subagent）和环节 B（OCR）可并行启动，互不等待。
+- 本地可以先做整体审查草稿，但最终 verdict 必须等所有已启动 reviewer 返回后才能定稿。
+- 每环节返回后：逐条本地事实核验，OCR 结果按 High/Medium/Low 映射严重度，能复现 / 有证据才采纳；证据不足只写 residual-risk。
+- 某环节失败 / 卡住：不要默默降级；报告该环节 `failed|blocked`，交给用户决定重试或明确降级。
+- 报告里保留来源：标注每条 finding 来自哪个 reviewer（`paseo` / `native-agent` / `ocr` / `local`）。
 
 ### 3. 整体审查
 
@@ -152,11 +204,7 @@ Paseo subagent prompt 必须只给原始材料和边界，不透露本地 review
 - `changes-requested`：有 blocking，或 important 多到会影响验收可信度。
 - `blocked`：缺少关键输入、diff 归因无法判断、设计/实现状态不满足 review 前置条件，或本轮已启动 independent reviewer 但结果仍 pending / failed / blocked 且用户尚未确认降级。
 
-**`reviewer` 字段（gate 锚点）**：`{slug}-review.md` 的 frontmatter `reviewer` 决定下游 worktree / commit / finish gate 是否放行，按「独立 reviewer 增强项」实际三态写：
-
-- independent reviewer completed 并已合并核验 → `reviewer: subagent`。
-- 没启动外部 reviewer（local-only / skipped-by-user）→ `reviewer: self`；gate 默认要求 `subagent`，`self` 需配 `CODESTABLE_ALLOW_SELF_REVIEW_FALLBACK=1` 才放行。
-- pending / failed / blocked → 不定稿 `passed`，也不写 `reviewer: subagent`。
+**`reviewer` 字段（gate 锚点）**：`{slug}-review.md` 的 frontmatter `reviewer` 决定下游 worktree / commit / finish gate 是否放行，按「独立 reviewer（双环节）」实际完成情况写 `subagent+ocr` / `subagent` / `ocr` / `self`（语义见上节表）。任一已启动环节仍 pending / failed / blocked 时不定稿 `passed`，也不写 `subagent`。
 
 ---
 
@@ -208,13 +256,13 @@ Paseo subagent prompt 必须只给原始材料和边界，不透露本地 review
 
 - [ ] 已读取 attention、来源 spec 产物、实现证据、git status、git diff 和相关代码。
 - [ ] 已确认来源 spec 产物已定稿（feature 看 checklist steps 全 done）；否则退回来源实现技能。
-- [ ] 已运行 independent reviewer 检测，或记录为什么跳过。
-- [ ] 如果没有启动 independent reviewer，已记录 not-available / skipped-by-user / local-only 原因。
-- [ ] 如果启动了 independent reviewer，已等到 completed 并逐条本地核验合并 / 驳回 findings；否则报告 `status: blocked`，没有进入 QA。
+- [ ] 主 agent 已自检工具（Paseo `mcp__paseo__create_agent` / 原生 `Agent` / `ocr` CLI），记录可用情况。
+- [ ] 环节 A（独立隔离 agent）和环节 B（OCR，可用时）均已启动，或记录跳过原因。
+- [ ] 所有已启动的环节均已返回并逐条本地核验合并 / 驳回；否则报告 `status: blocked`，没有进入 QA。
 - [ ] 已做整体审查和行级审查。
 - [ ] 已明确区分 blocking / important / nit / suggestion / learning / praise / residual-risk。
 - [ ] 已写来源 spec 目录下的 `{slug}-review.md`（feature 即 `.codestable/features/{feature}/{slug}-review.md`）。
-- [ ] `status: passed` 时 frontmatter `reviewer` 已按独立 review 实际写 `subagent`（或确属无 subagent 平台的 `self` fallback）——这是下游 gate 的放行锚点。
+- [ ] `status: passed` 时 frontmatter `reviewer` 已按双环节实际完成写 `subagent+ocr` / `subagent`（或确属无 subagent 平台的 `ocr` / `self` fallback）——这是下游 gate 的放行锚点。
 - [ ] 有 blocking 时没有进入下游，而是指向来源实现技能的 review-fix。
 - [ ] 无 blocking 时明确告诉用户「进入来源」表的通过后去向（feature→`cs-feat-qa`）。
 
@@ -227,8 +275,9 @@ Paseo subagent prompt 必须只给原始材料和边界，不透露本地 review
 - 只看测试是否通过，不判断测试是否有效。
 - 把格式、命名偏好、个人写法升级成 blocking。
 - 发现设计外实现却不回到 design 契约判断。
-- 外部 reviewer 的结论没经本地事实核验就直接照抄成 blocking。
-- 启动 independent reviewer 后结果还没回来，就把本地 review 定稿为 passed。
-- independent reviewer 卡住时不问用户就默默降级成 local-only。
+- 外部 reviewer（Paseo / native-agent / OCR）的结论没经本地事实核验就直接照抄成 blocking。
+- OCR High 直接映射成 blocking，跳过本地核验。
+- 某路 reviewer 还没返回，就把本地 review 定稿为 passed。
+- 某路 reviewer 卡住时不问用户就默默降级成 local-only。
 - blocking 修完后跳过复审，直接验收。
 - review 报告没有落盘，导致 acceptance 没有可追溯输入。

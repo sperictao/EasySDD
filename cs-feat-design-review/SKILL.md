@@ -56,19 +56,11 @@ description: feature design 人工确认前的方案审查 gate。对照 {slug}-
 
 但一旦本轮已经启动 independent reviewer，它就是本轮 review gate 的输入。主 agent 可以先做本地审查草稿，但不能在 independent reviewer 返回前定稿 `{slug}-design-review.md`、不能给出 `passed`、不能把 design 交给用户确认。reviewer 卡住、失败、权限阻塞或耗时过长时，只能把本轮标成 `blocked` / `independent-review-pending`，让用户决定继续等待、重试 reviewer，或明确降级为 local-only review。
 
-先运行本 skill 自带检测脚本。按已加载的 `SKILL.md` 所在目录解析脚本路径，不要按业务仓库根目录猜路径：
+**检测由主 agent 在运行时自检自己的工具**，不靠脚本猜环境——主 agent 最清楚自己手上有哪些工具。按优先级选一个启动独立 reviewer：
 
-```bash
-python3 scripts/detect-review-agent.py --pretty
-```
-
-脚本只输出能力 JSON，不启动 agent、不改文件。
-
-优先级：
-
-1. **Paseo 可用**：优先用 Paseo 启动 `audit` 类 subagent 做只读独立审查。检测脚本只能说明本机存在 Paseo 候选能力；真正启动前还要确认当前 agent runtime 暴露 Paseo 工具，或可调用检测结果里的 Paseo CLI。启动前先加载 / 读取 `paseo` skill 的当前说明，并遵守它的规则：读取 `~/.paseo/orchestration-preferences.json`，使用 `providers.audit`，不要硬编码 Claude 或 Codex。编写 design 的主 agent 是 Codex 且 `providers.audit` 指向 Claude / Opus 等不同 agent 时，必须使用该独立 reviewer；如果只能用同类 agent，在报告里记录降级和残余风险。没有可用工具 / CLI 时不要伪装启动，记录 `local-only` 或 `blocked` 原因。不要无限轮询运行中的 agent；如果 reviewer 已启动但结果未返回，停止在 review gate，记录 pending/blocked，等待通知或用户决定。
-2. **只有 claude / gemini / aider 等 CLI 可见**：不要自动调用。直接本地 review，除非用户显式要求使用某个 CLI。
-3. **没有外部 reviewer**：本地 review。
+1. **有 `mcp__paseo__create_agent` 工具**：优先用 Paseo 启动 `audit` 类 subagent 做只读独立审查（**首选**：能换 provider，做到真正异构审查）。启动前先加载 / 读取 `paseo` skill 的当前说明，并遵守它的规则：读取 `~/.paseo/orchestration-preferences.json`，使用 `providers.audit`，不要硬编码 Claude 或 Codex。编写 design 的主 agent 是 Codex 且 `providers.audit` 指向 Claude / Opus 等不同 agent 时，必须使用该独立 reviewer；如果只能用同类 agent，在报告里记录降级和残余风险。不要无限轮询运行中的 agent；如果 reviewer 已启动但结果未返回，停止在 review gate，记录 pending/blocked，等待通知或用户决定。
+2. **否则有 `Agent`（subagent）工具**：用原生 subagent 做独立上下文审查。独立上下文同样达成，只是与主 agent 同模型——仍显著优于自审；如属同类 agent，在报告里记录降级和残余风险。
+3. **两者都没有**：本地 review，记录 `local-only`，不要伪装启动。
 
 Paseo subagent prompt 必须只给原始材料和边界，不透露本地 review 结论：
 
@@ -107,9 +99,9 @@ Paseo subagent prompt 必须只给原始材料和边界，不透露本地 review
 
 ### 2. 独立审查合并
 
-- 记录 detection 结果：`paseo-subagent` / `local-review-with-agent-cli-available` / `local-review`。
+- 记录主 agent 自检结果：`paseo` / `native-agent` / `local-only`。
 - 没有启动 independent reviewer 时，记录原因，本地 review 可以定稿。
-- 启动 Paseo subagent 后，最终 verdict 必须等 reviewer 返回。
+- 启动 Paseo / 原生 subagent 后，最终 verdict 必须等 reviewer 返回。
 - reviewer 返回后逐条做本地事实核验；能用 design / checklist / 文档 / 代码证据支撑才合并。
 - reviewer 失败、权限阻塞、超时或仍在运行时，不要默默降级；报告 `status: blocked`。
 
@@ -127,6 +119,24 @@ Paseo subagent prompt 必须只给原始材料和边界，不透露本地 review
 - checklist：steps 是否独立可验证，exit_signal 是否 yes/no，checks 是否都能追溯到 design。
 - 基线与验证：必跑命令、预检策略、基线红灯归因是否写清。
 - 交付物与清洁度：acceptance 是否能从仓库事实核验；调试输出、TODO、死 import 等规则是否明确。
+
+### 4. Feature Design Review Invariants 与证据分级
+
+每轮 review 必须形成 Evidence Confidence Ledger。证据分级只描述依据来源，不计算质量分：
+
+- `E` Embedded：design / checklist / roadmap item / 命令输出里直接可见。
+- `C` Context：相关 req / arch / compound / 代码事实支撑。
+- `H` Heuristic：工程经验或 reviewer 判断，缺少直接仓库证据。
+
+核心 invariants：
+
+- Acceptance Coverage Matrix 覆盖每个核心验收场景。
+- 每个核心场景能追踪到 checklist step、证据类型和命令 / 动作。
+- checklist steps 独立可验证，checks 能回到 design 来源。
+- roadmap 起头的 design 没有绕开 roadmap 接口契约。
+- DoD Contract 覆盖 Design / Implementation / Review / QA / Acceptance DoD、Validation Commands 和 Required Artifacts。
+- checklist `dod.commands` 若存在，字段使用 `{id, command, core, failure_handling}`；design 表格只是人读投影。
+- 核心检查若只有 `H` 证据，不能静默 `passed`；至少写入 residual risk，必要时列 important / blocking finding。
 
 ---
 
@@ -171,7 +181,7 @@ round: 1
 ### Independent Review
 
 - Status: not-available|skipped-by-user|local-only|pending|completed|failed|blocked
-- Detection: paseo-subagent|local-review-with-agent-cli-available|local-review|skipped
+- Detection: paseo|native-agent|local-only|skipped
 - Provider / agent: {providers.audit / agent id / none}
 - Raw output: {摘要 / 路径 / none}
 - Merge policy: {已逐条核验 / 未启用原因 / pending 时不得定稿}
@@ -222,11 +232,23 @@ round: 1
 - implement 需要重点遵守：{契约 / steps / 验证}
 - code review / QA / acceptance 需要重点复核：{风险 / 证据}
 
-## 5. Residual Risk
+## 5. Evidence Confidence Ledger
+
+| Check | Verdict | Evidence Class | Basis | Follow-up |
+|---|---|---|---|---|
+| Acceptance Coverage Matrix | pass|warn|fail | E|C|H | {路径 / 事实 / 判断依据} | {none / 复核点} |
+| DoD Contract | pass|warn|fail | E|C|H | {依据} | {复核点} |
+| Steps and checks traceability | pass|warn|fail | E|C|H | {依据} | {复核点} |
+| Roadmap contract compliance | pass|warn|fail | E|C|H | {依据} | {复核点} |
+| Validation and artifacts | pass|warn|fail | E|C|H | {依据} | {复核点} |
+
+Summary: E={n}, C={n}, H={n}, H-only core checks={列表或 none}。
+
+## 6. Residual Risk
 
 - {风险 + 下游如何处理；没有写 none}
 
-## 6. Verdict
+## 7. Verdict
 
 - Status: passed|changes-requested|blocked
 - Next: 交给用户整体 review | 回 `cs-feat-design` 修订后重跑 `cs-feat-design-review` | 等 independent reviewer 完成 / 用户确认降级后重跑
@@ -244,6 +266,8 @@ round: 1
 - [ ] 已运行 independent reviewer 检测，或记录为什么跳过。
 - [ ] 如果启动了 independent reviewer，已等到 completed 并逐条本地核验合并 / 驳回 findings；否则报告 `status: blocked`，没有进入用户 review。
 - [ ] 已审查需求边界、术语、名词层、编排层、挂载点、结构健康度、验收契约、steps/checks、基线、交付物、清洁度。
+- [ ] 已检查 Acceptance Coverage Matrix、Feature Design Review Invariants 和 Evidence Confidence Ledger。
+- [ ] 核心检查 H-only 时没有静默 passed。
 - [ ] 已写 `.codestable/features/{feature}/{slug}-design-review.md`。
 - [ ] 有 blocking / 未处理 important 时指向 `cs-feat-design` 修订并重跑 review。
 - [ ] 无 blocking 且 important 已处理或明确接受时，明确告诉用户下一步是 feature design 人工 review。
