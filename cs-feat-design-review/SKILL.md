@@ -1,13 +1,13 @@
 ---
 name: cs-feat-design-review
-description: feature design 人工确认前的方案审查 gate。对照 {slug}-design.md、{slug}-checklist.yaml、相关 roadmap / requirement / architecture / compound / 代码事实做只读 review，产出 {slug}-design-review.md；按 Task agent 选择规则启动独立审查（Paseo subagent 优先，否则原生 Codex/Claude Task/Agent），主 agent 等待结果、事实核验并合并定级。触发：用户说"review 这个 design"、"feature design 人审前先独立审查"、"跑 cs-feat-design-review"、"方案审查"。
+description: Feature design review gate。触发：人审前审 design/checklist，或用户要求方案审查。
 ---
 
 # cs-feat-design-review
 
 ## 启动必读
 
-开始任何判断或动作前，先读取 `.codestable/attention.md`；缺失则视为骨架不完整，提示先补齐或运行 `cs-onboard`，不要回退到外部 AI 入口文件。
+开始任何判断或动作前，先执行 CodeStable preflight：读 `.codestable/attention.md`；缺失先 `cs-onboard`；不读外部 AI 入口替代（详见 `.codestable/reference/execution-conventions.md`）。
 
 本阶段是 feature design 交给用户人工确认前的方案审查 gate。它只读 design、checklist、相关文档和必要代码事实，只写 `{slug}-design-review.md`，不直接改 design/checklist、不替用户批准 design、不进入实现。
 
@@ -31,7 +31,7 @@ description: feature design 人工确认前的方案审查 gate。对照 {slug}-
 - design 第 4 节指向的 architecture 文档
 - 相关 compound 沉淀：用项目搜索工具按 feature 关键词检索 decision / learning / explore / trick
 - design 中引用到的关键代码位置、接口、类型、组件、命令、配置
-- 独立 Task agent reviewer 输出（如果本轮启用了 Paseo 或其他 reviewer）
+- 独立 Task agent reviewer 输出（如果本轮已启动）
 
 没有代码引用时不强行扫全仓库；但 design 声称复用、修改、挂载或约束某个现有模块时，必须读对应代码或文档事实核验。
 
@@ -52,13 +52,17 @@ description: feature design 人工确认前的方案审查 gate。对照 {slug}-
 
 ## 独立 Task agent reviewer 增强项
 
-本阶段默认由当前 agent 做本地方案审查；独立 Task agent reviewer 是增强项，不是硬依赖。检测不到 Task agent、provider 未配置或用户明确要求快速完成时，可以继续本地 review，并在报告里记录 `Independent reviewer: local-only` / `skipped-by-user`。
+本阶段默认由当前 agent 做本地方案审查；独立 Task agent reviewer 是增强项，不是硬依赖。检测不到 Task agent 能力、provider 未配置或用户明确要求快速完成时，可以继续本地 review，并在报告里记录 `Independent reviewer: local-only` / `skipped-by-user`；若需要用户授权降级，先按 `.codestable/reference/approval-conventions.md` 写 `approval-report.md`，再让用户选择。
 
 但一旦本轮已经启动独立 Task agent reviewer，它就是本轮 review gate 的输入。主 agent 可以先做本地审查草稿，但不能在 reviewer 返回前定稿 `{slug}-design-review.md`、不能给出 `passed`、不能把 design 交给用户确认。reviewer 卡住、失败、权限阻塞或耗时过长时，只能把本轮标成 `blocked` / `independent-review-pending`，让用户决定继续等待、重试 reviewer，或明确降级为 local-only review。
 
-**检测由主 agent 在运行时自检自己的工具**，按 `.codestable/reference/execution-conventions.md` 的 Task agent 选择规则启动独立 Task agent reviewer：Paseo subagent 优先，否则用当前宿主的原生 Codex/Claude Task/Agent。都没有则本地 review，记录 `local-only`，并写入 `approval-report.md` 请 owner 授权降级；不要伪装启动。不要无限轮询运行中的 agent；若已启动但未返回，停止在 review gate，记录 pending/blocked，等待通知或用户决定。
+**检测由主 agent 在运行时自检自己的工具**，不靠脚本猜环境——主 agent 最清楚自己手上有哪些工具。按 Task agent 选择规则启动独立 Task agent reviewer（优先 Paseo subagent，否则当前宿主原生 Codex/Claude Task/Agent）：
 
-Task agent prompt 必须只给原始材料和边界，不透露本地 review 结论：
+1. **有 `mcp__paseo__create_agent` 工具**：优先用 Paseo subagent 做只读独立审查（**首选**：能换 provider，做到真正异构审查）。启动前先加载 / 读取 `paseo` skill 的当前说明，并遵守它的规则：读取 `~/.paseo/orchestration-preferences.json`，使用 `providers.audit`，不要硬编码 Claude 或 Codex。不要无限轮询运行中的 agent；如果 reviewer 已启动但结果未返回，停止在 review gate，记录 pending/blocked，等待通知或用户决定。
+2. **否则有当前宿主原生 Codex/Claude Task/Agent 工具**：用原生 Task agent 做独立上下文审查。如属同类 agent，在报告里记录降级和残余风险。
+3. **两者都没有**：本地 review，记录 `local-only`，并在需要授权降级时写 `approval-report.md`；不要伪装启动。
+
+独立 Task agent reviewer prompt 必须只给原始材料和边界，不透露本地 review 结论：
 
 ```text
 你是 CodeStable feature design 的独立方案审查 agent。只读，不修改文件，不更新 design/checklist。
@@ -77,7 +81,7 @@ Task agent prompt 必须只给原始材料和边界，不透露本地 review 结
 不要写 {slug}-design-review.md；只把审查结果回传给主 agent。
 ```
 
-主 agent 仍是最终审查责任方：必须逐条核验 reviewer 的 finding，去重、定级、合并进 `{slug}-design-review.md`。未经本地事实核验的外部结论只能写 `residual-risk` 或忽略，不能直接升级成 `blocking`。
+主 agent 仍是最终审查责任方：必须逐条核验独立 Task agent reviewer 的 finding，去重、定级、合并进 `{slug}-design-review.md`。未经本地事实核验的外部结论只能写 `residual-risk` 或忽略，不能直接升级成 `blocking`。
 
 ---
 
@@ -97,7 +101,7 @@ Task agent prompt 必须只给原始材料和边界，不透露本地 review 结
 
 - 记录主 agent 自检结果：`paseo` / `native-agent` / `local-only`。
 - 没有启动独立 Task agent reviewer 时，记录原因，本地 review 可以定稿。
-- 启动 Task agent 后，最终 verdict 必须等 reviewer 返回。
+- 启动 Paseo subagent / 原生 Task agent 后，最终 verdict 必须等 reviewer 返回。
 - reviewer 返回后逐条做本地事实核验；能用 design / checklist / 文档 / 代码证据支撑才合并。
 - reviewer 失败、权限阻塞、超时或仍在运行时，不要默默降级；报告 `status: blocked`。
 

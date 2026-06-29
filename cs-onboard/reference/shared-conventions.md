@@ -36,7 +36,7 @@ onboard 完成后骨架（`cs-onboard` 负责搭建）：
 │       ├── {slug}-start-report.md 起点报告
 │       ├── {slug}-state.yaml     机器可读状态
 │       ├── {slug}-iteration-*.md 迭代报告
-│       └── {slug}-functional-acceptance.md 子 agent 功能验收
+│       └── {slug}-functional-acceptance.md Task agent 功能验收
 ├── features/              feature spec 聚合根
 │   └── YYYY-MM-DD-{slug}/  每个 feature 一个目录
 │       ├── {slug}-brainstorm.md  （可选，case 2 时产出）

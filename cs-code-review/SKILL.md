@@ -1,13 +1,13 @@
 ---
 name: cs-code-review
-description: 横切代码审查 gate——任何流程（feature / issue / refactor / fastforward）实现完成后、commit 前，对照对应 spec 产物和当前 git diff 做独立只读 code review，产出 {slug}-review.md；按 Task agent 选择规则启动独立审查（Paseo subagent 优先，否则原生 Codex/Claude Task/Agent），最终由本 skill 合并定级。有 blocking findings 时回到对应实现技能修复，通过后交回上游收尾（feature 进 cs-feat-qa，其余进各自验收/提交）。触发：用户说"做代码审查"、"code review"、"review 这次改动"、"合并前审一下"、"跑 cs-code-review"。
+description: Code review gate。触发：实现完成后、QA/验收/commit 前审本轮 diff。
 ---
 
 # cs-code-review
 
 ## 启动必读
 
-开始任何判断或动作前，先读取 `.codestable/attention.md`；缺失则视为骨架不完整，提示先补齐或运行 `cs-onboard`，不要回退到外部 AI 入口文件。
+开始任何判断或动作前，先执行 CodeStable preflight：读 `.codestable/attention.md`；缺失先 `cs-onboard`；不读外部 AI 入口替代（详见 `.codestable/reference/execution-conventions.md`）。
 
 本技能是**横切代码审查 gate**：任何流程实现完成后、commit / QA / 验收前，对当前改动做独立只读 review。它只读代码和产物，只写 `{slug}-review.md`，不直接修代码、不更新 checklist、不改 spec、不替代 QA 或 acceptance。
 
@@ -43,7 +43,7 @@ description: 横切代码审查 gate——任何流程（feature / issue / refac
 - diff 涉及的人写代码文件和相邻关键调用点
 - spec 指向的 architecture / requirement / roadmap 相关文档（只读，判断改动是否会影响归并；feature 即 design 第 4 节）
 - goal / gate 模式下的 evidence pack、gate results、DoD results；缺失时回 implementation gate 补证据，不现场猜测
-- 独立 Task agent reviewer 输出（如果本轮启用了 Paseo 或其他 reviewer）
+- 独立 Task agent reviewer 输出（如果本轮已启动）
 
 如果工作区有本轮范围外的既有 dirty 文件，先记录为 baseline/无关变更；审查结论只针对本轮可归因的改动。无法区分归因时写成 `residual-risk`，不要把不确定当通过。
 
@@ -69,16 +69,21 @@ description: 横切代码审查 gate——任何流程（feature / issue / refac
 
 | 环节 | 目的 | 是否 gate 必需 |
 |---|---|---|
-| **A 独立隔离 agent review** | spec 视角整体审查，用**独立上下文**避免主 agent 确认偏误 | 是（gate 放行靠它） |
+| **A 独立 Task agent review** | spec 视角整体审查，用**独立上下文**避免主 agent 确认偏误 | 是（gate 放行靠它） |
 | **B OCR 行级扫描** | 行级 bug / 安全 / 代码模式扫描，补 A 的盲区 | 否（装了就跑，缺了降级） |
 
 **检测由主 agent 在运行时自检自己的工具**，不靠脚本猜环境——主 agent 最清楚自己手上有哪些工具。
 
 ---
 
-### 环节 A：独立隔离上下文 agent review（gate 必需）
+### 环节 A：独立 Task agent review（gate 必需）
 
-主 agent 按 `.codestable/reference/execution-conventions.md` 的 Task agent 选择规则启动独立 Task agent reviewer：Paseo subagent 优先，否则用当前宿主的原生 Codex/Claude Task/Agent；都没有则记 `local-only`，不能伪装启动。gate 默认不放行，需用户明确降级（见 `reviewer` 字段）。
+主 agent 按 Task agent 选择规则启动独立 Task agent reviewer（优先 Paseo subagent，否则当前宿主原生 Codex/Claude Task/Agent；都不可用时按 local-only fallback 处理）：
+
+1. **有 `mcp__paseo__create_agent` 工具** → 用 Paseo subagent（**首选**：能换 provider，做到真正异构审查）。
+   先加载 / 读取 `paseo` skill 的当前说明并遵守其规则：读取 `~/.paseo/orchestration-preferences.json`，使用 `providers.audit`，不要硬编码 provider；文件缺失时用合理默认并在报告说明。
+2. **否则有当前宿主原生 Codex/Claude Task/Agent 工具** → 启动原生 Task agent。独立上下文同样达成；若同模型，在报告里记录降级和残余风险。
+3. **两者都没有** → 记 `local-only`，不能伪装启动。gate 默认不放行，需用户明确降级（见 `reviewer` 字段）。
 
 独立 Task agent reviewer prompt（只给原始材料，不透露主 agent 的任何 review 结论）：
 
@@ -170,8 +175,8 @@ gate 默认要求 `subagent` 或 `subagent+ocr`；`ocr` 和 `self` 需配 `CODES
 
 ### 2. 独立审查合并
 
-- 主 agent 自检工具：是否有 Task agent 能力（Paseo subagent / 原生 Codex/Claude Task/Agent），`which ocr` 是否可用。
-- 环节 A（独立隔离 Task agent）和环节 B（OCR）可并行启动，互不等待。
+- 主 agent 自检工具：是否有 `mcp__paseo__create_agent` / 原生 Codex/Claude Task/Agent 工具，`which ocr` 是否可用。
+- 环节 A（独立 Task agent，Paseo subagent 优先→原生 Task agent）和环节 B（OCR）可并行启动，互不等待。
 - 本地可以先做整体审查草稿，但最终 verdict 必须等所有已启动 reviewer 返回后才能定稿。
 - 每环节返回后：逐条本地事实核验，OCR 结果按 High/Medium/Low 映射严重度，能复现 / 有证据才采纳；证据不足只写 residual-risk。
 - 某环节失败 / 卡住：不要默默降级；报告该环节 `failed|blocked`，交给用户决定重试或明确降级。
@@ -268,7 +273,7 @@ gate 默认要求 `subagent` 或 `subagent+ocr`；`ocr` 和 `self` 需配 `CODES
 - [ ] 已做整体审查和行级审查。
 - [ ] 已明确区分 blocking / important / nit / suggestion / learning / praise / residual-risk。
 - [ ] 已写来源 spec 目录下的 `{slug}-review.md`（feature 即 `.codestable/features/{feature}/{slug}-review.md`）。
-- [ ] `status: passed` 时 frontmatter `reviewer` 已按双环节实际完成写 `subagent+ocr` / `subagent`（或确属无 subagent 平台的 `ocr` / `self` fallback）——这是下游 gate 的放行锚点。
+- [ ] `status: passed` 时 frontmatter `reviewer` 已按双环节实际完成写 `subagent+ocr` / `subagent`（或确属无 Task agent 能力的 `ocr` / `self` fallback）——这是下游 gate 的放行锚点。
 - [ ] 有 blocking 时没有进入下游，而是指向来源实现技能的 review-fix。
 - [ ] 无 blocking 时明确告诉用户「进入来源」表的通过后去向（feature→`cs-feat-qa`）。
 
@@ -281,7 +286,7 @@ gate 默认要求 `subagent` 或 `subagent+ocr`；`ocr` 和 `self` 需配 `CODES
 - 只看测试是否通过，不判断测试是否有效。
 - 把格式、命名偏好、个人写法升级成 blocking。
 - 发现设计外实现却不回到 design 契约判断。
-- 外部 reviewer（Paseo / native-agent / OCR）的结论没经本地事实核验就直接照抄成 blocking。
+- 外部 reviewer（Paseo subagent / native-agent / OCR）的结论没经本地事实核验就直接照抄成 blocking。
 - OCR High 直接映射成 blocking，跳过本地核验。
 - 某路 reviewer 还没返回，就把本地 review 定稿为 passed。
 - 某路 reviewer 卡住时不问用户就默默降级成 local-only。

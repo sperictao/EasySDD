@@ -1,13 +1,13 @@
 ---
 name: cs-feat-accept
-description: feature 流程阶段 3——验收闭环：对照 design 核实现 + review 报告 + QA 报告或验收现场验证证据 + 盘点 cs-domain 候选（提示而非代写）+ 回写 requirement / roadmap，最后产出 {slug}-acceptance.md；可选只读 acceptance Task agent auditor 辅助复核，但最终状态写入由本技能负责。触发：用户说"功能写完了验收一下"、"做最后检查"、"准备 merge"、"出验收报告"。
+description: Feature acceptance。触发：实现、review、QA 后最终验收，或准备 merge/出验收报告。
 ---
 
 # cs-feat-accept
 
 ## 启动必读
 
-开始任何判断或动作前，先读取 `.codestable/attention.md`；缺失则视为骨架不完整，提示先补齐或运行 `cs-onboard`，不要回退到外部 AI 入口文件。
+开始任何判断或动作前，先执行 CodeStable preflight：读 `.codestable/attention.md`；缺失先 `cs-onboard`；不读外部 AI 入口替代（详见 `.codestable/reference/execution-conventions.md`）。
 
 代码已经写完，但流程没结束。本阶段做四件事，缺一不可：
 

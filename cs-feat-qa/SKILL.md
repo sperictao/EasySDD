@@ -1,13 +1,13 @@
 ---
 name: cs-feat-qa
-description: feature 流程阶段 2.6——代码审查通过后的 QA 验证 gate。对照 design / checklist / review 报告和最终 diff，运行必跑命令、测试、浏览器或手工验证，产出 {slug}-qa.md；可选独立 QA Task agent 辅助执行验证，但正式 verdict 和报告由本技能落盘；QA 失败时回到 cs-feat-impl 的 qa-fix。触发：用户说"做 QA"、"跑测试验收前验证"、"review 过了跑 QA"、"跑 cs-feat-qa"。
+description: Feature QA gate。触发：code review passed 后跑验证，或用户要求 QA。
 ---
 
 # cs-feat-qa
 
 ## 启动必读
 
-开始任何判断或动作前，先读取 `.codestable/attention.md`；缺失则视为骨架不完整，提示先补齐或运行 `cs-onboard`，不要回退到外部 AI 入口文件。
+开始任何判断或动作前，先执行 CodeStable preflight：读 `.codestable/attention.md`；缺失先 `cs-onboard`；不读外部 AI 入口替代（详见 `.codestable/reference/execution-conventions.md`）。
 
 本阶段是 review 通过后、acceptance 前的 QA gate。它只读代码和产物、运行验证命令 / 浏览器 / API / 手工检查，并写 `{slug}-qa.md`。默认不改代码、不改 checklist、不改 design；发现失败后回到 `cs-feat-impl` 的 qa-fix。
 

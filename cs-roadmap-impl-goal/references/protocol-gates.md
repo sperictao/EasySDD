@@ -59,7 +59,7 @@
 
 - review 基于当前 diff。
 - review `status=passed`。
-- review 必须由独立 reviewer 完成；frontmatter `reviewer: subagent` 或 `subagent+ocr` 是默认放行锚点。`reviewer: ocr` / `self` 只能作为用户显式降级 fallback，不能静默通过。
+- review 必须由独立 Task agent reviewer 完成；frontmatter `reviewer: subagent` 或 `subagent+ocr` 是默认放行锚点。`reviewer: ocr` / `self` 只能作为用户显式降级 fallback，不能静默通过。
 - 无 unresolved blocking。
 - review 明确消费 evidence pack 和 gate results。
 - high-risk provider warnings 已解释或交给 QA。

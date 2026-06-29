@@ -28,7 +28,7 @@
 仍必须 handoff 的情况：
 
 - 需要改变已批准 design、roadmap item、接口契约或 feature 范围。
-- 独立 reviewer pending / failed / blocked，且没有用户明确降级。
+- 独立 Task agent reviewer pending / failed / blocked，且没有用户明确降级。
 - 同一失败项三轮修复仍不通过。
 - 外部凭证或环境缺失导致核心行为无法判断。
 - 功能性核心路径或 roadmap 级核心验收路径无法验证。

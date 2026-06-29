@@ -1,9 +1,11 @@
 ---
 name: cs-goal
-description: 有界起点/终点目标的自主迭代流程。触发：owner 给出期望结果、验收结果、预算，或要求 AI "达成这个 goal"、"一直跑到验收"、"自主迭代"、"先 grill me 再实现"。在 `.codestable/goals/` 下创建起点、iteration 和功能验收产物；报告正文遵守 `.codestable/attention.md`。
+description: Goal 自主达成。触发：明确终点/验收/预算、持续迭代到完成，或 grill me 后开工。
 ---
 
 # cs-goal
+
+开始任何判断或动作前，先执行 CodeStable preflight：读 `.codestable/attention.md`；缺失先 `cs-onboard`；不读外部 AI 入口替代（详见 `.codestable/reference/execution-conventions.md`）。
 
 `cs-goal` 处理有界 goal：owner 给出起点和期望终态，CodeStable 先做轻量
 interview / grill，动手前写起点报告，然后自主实现、验证、迭代；完成前必须请求

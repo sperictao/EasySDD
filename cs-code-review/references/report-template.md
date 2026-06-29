@@ -10,7 +10,7 @@
 | issue | `issue-review` | `issue: YYYY-MM-DD-slug` |
 | refactor / refactor-ff | `refactor-review` | `refactor: YYYY-MM-DD-slug` |
 
-`status` / `reviewed` / `round` 各来源通用。`reviewer` 是 gate 锚点字段，按本轮实际启动的独立 reviewer 组合写：
+`status` / `reviewed` / `round` 各来源通用。`reviewer` 是 gate 锚点字段，按本轮实际启动的独立 Task agent reviewer / OCR 组合写：
 
 | 值 | 含义 |
 |---|---|
@@ -106,7 +106,7 @@ round: 1
 ## 6. Verdict
 
 - Status: passed|changes-requested|blocked
-- Next: 按「进入来源」表的通过后去向（feature→`cs-feat-qa`，其余→各自验收/提交） | 来源实现技能 review-fix | 等 independent reviewer 完成 / 用户确认降级后重跑本审查 | 补齐输入后重跑本审查
+- Next: 按「进入来源」表的通过后去向（feature→`cs-feat-qa`，其余→各自验收/提交） | 来源实现技能 review-fix | 等独立 Task agent reviewer 完成 / 用户确认降级后重跑本审查 | 补齐输入后重跑本审查
 ```
 
 没有某类 finding 时写 `none`，不要删除章节；下一轮复审要能对比。
